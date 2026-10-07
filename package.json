@@ -1,0 +1,27 @@
+{
+  "name": "job-watch",
+  "version": "1.0.0",
+  "description": "Daily check of company job boards for new, relevant postings, scored by a local model.",
+  "scripts": {
+    "check": "tsx src/check.ts",
+    "discover": "tsx src/discover.ts",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc"
+  },
+  "author": "Dale Chang",
+  "license": "MIT",
+  "dependencies": {
+    "fast-xml-parser": "^5.11.2",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.12"
+  }
+}

@@ -1,0 +1,333 @@
+# Companies to watch.
+#
+# Each entry needs a `name`. `website` / `careersUrl` help `npm run discover` find the job board.
+# `ats` says how to read the job list:
+#
+#   greenhouse | lever | lever-eu | ashby | workable | recruitee | personio | teamtailor
+#   smartrecruiters | bamboohr   -> need `slug` (the company's id on that platform)
+#   workday                      -> needs `url` (the myworkdayjobs.com careers page)
+#   html                         -> needs `url`, optional `linkPattern` (regex matched against job link hrefs)
+#   manual                       -> skipped; listed in the report as "check by hand"
+#   unknown                      -> not found yet; run `npm run discover`
+#
+# `verify: true` means discover guessed the slug by probing, rather than finding a link on the company's
+# own site. Check those once (open the board, confirm it is the right company) and delete the flag.
+# `enabled: false` pauses a company without deleting it.
+
+# --- Reflective.org portfolio ---
+- name: Agurotech
+  ats: unknown
+- name: Spoiler Alert
+  ats: greenhouse
+  slug: spoileralert
+  verify: true
+- name: Urbantz
+  website: https://www.urbantz.com
+  ats: unknown
+- name: Amarenco
+  website: https://www.amarenco.com
+  ats: teamtailor
+  slug: amarenco
+  verify: true
+- name: enmacc
+  website: https://www.enmacc.com
+  ats: greenhouse
+  slug: enmacc
+  verify: true
+- name: Candam
+  ats: unknown
+- name: SeaForester
+  ats: unknown
+- name: GoParity
+  website: https://goparity.com
+  ats: unknown
+- name: SolCore Solar
+  ats: unknown
+- name: Ace Aquatec
+  website: https://www.aceaquatec.com
+  ats: unknown
+- name: Solar Lacovale
+  ats: unknown
+- name: Tecfys
+  ats: unknown
+
+# --- Your list ---
+- name: Polar Night Energy
+  website: https://polarnightenergy.com
+  ats: unknown
+- name: Loviisan Lämpö
+  ats: unknown
+- name: Encamp
+  website: https://www.encamp.com
+  ats: unknown
+- name: Mati Carbon
+  website: https://www.maticarbon.com
+  ats: ashby
+  slug: mati-carbon
+  verify: true
+- name: Minnow Collective
+  ats: unknown
+- name: Mill
+  website: https://www.mill.com
+  ats: greenhouse
+  slug: Mill
+- name: Basis Climate
+  website: https://www.buildwithbasis.com
+  ats: unknown
+- name: Aurora Solar
+  website: https://aurorasolar.com
+  ats: ashby
+  slug: aurorasolar
+- name: Tradivel
+  website: https://tradivel.com
+  ats: unknown
+- name: WeatherXM
+  website: https://weatherxm.com
+  ats: workable
+  slug: weatherxm
+  verify: true
+- name: Acciona Energía
+  website: https://www.acciona-energia.com
+  ats: unknown
+- name: trawa
+  website: https://www.trawa.de/en/
+  ats: ashby
+  slug: trawa
+- name: Wenea Mobile Energy
+  website: https://wenea.com
+  ats: unknown
+- name: PVcase
+  website: https://pvcase.com
+  ats: recruitee
+  slug: pvcase
+  verify: true
+- name: Enverus
+  website: https://www.enverus.com
+  careersUrl: https://www.enverus.com/careers/
+  ats: unknown
+- name: Swimmable Cities
+  website: https://www.swimmablecities.org
+  ats: unknown
+- name: Delfos
+  website: https://www.delfos.energy
+  ats: unknown
+- name: Inoqo
+  website: https://www.inoqo.com
+  ats: unknown
+- name: Quixotic Energy
+  website: https://www.quixotic.energy
+  careersUrl: https://www.quixotic.energy/careers/developer
+  ats: unknown
+- name: Green Eagle Solutions
+  website: https://www.greeneaglesolutions.com
+  ats: html
+  url: https://greeneaglesolutions.factorialhr.com
+  linkPattern: /job_posting/
+- name: Flexidao
+  website: https://www.flexidao.com
+  ats: personio
+  slug: flexidao
+- name: Base Power
+  website: https://www.basepowercompany.com
+  ats: ashby
+  slug: base-power
+  verify: true
+- name: Avalanche Energy
+  website: https://www.avalanchefusion.com
+  ats: bamboohr
+  slug: avalanche
+  verify: true
+- name: Artyc
+  website: https://www.shipartyc.com
+  ats: workable
+  slug: artyc
+  verify: true
+- name: Arch
+  website: https://www.getarch.com
+  ats: ashby
+  slug: arch
+  verify: true
+- name: cdr.fyi
+  website: https://cdr.fyi
+  ats: unknown
+- name: Arcadia
+  website: https://www.arcadia.com
+  ats: lever
+  slug: arcadia
+  verify: true
+- name: AMP
+  website: https://www.ampsortation.com
+  ats: greenhouse
+  slug: ampsortation
+- name: Airloom Energy
+  website: https://www.airloom.energy
+  ats: unknown
+- name: Air Company
+  website: https://aircompany.com
+  ats: greenhouse
+  slug: aircompany
+- name: bound4blue
+  website: https://bound4blue.com
+  ats: teamtailor
+  url: https://careers.bound4blue.com/jobs.rss
+- name: EcoVadis
+  website: https://ecovadis.com
+  ats: smartrecruiters
+  slug: ecovadis
+- name: SwitchFleet
+  website: https://www.switchfleet.com
+  ats: unknown
+- name: paebble
+  ats: unknown
+- name: Airforestry
+  ats: teamtailor
+  slug: airforestry
+  verify: true
+- name: ISeeChange
+  website: https://www.iseechange.com
+  # Notion page, rendered by JavaScript, so it can't be read with a plain fetch.
+  ats: manual
+  url: https://iseechange.notion.site/Jobs-at-ISeeChange-120b4c78301442169fdd104d814b1a4e
+- name: Ecoalf
+  website: https://ecoalf.com
+  ats: unknown
+- name: Scale Microgrid Solutions
+  website: https://www.scalemicrogrids.com
+  ats: lever
+  slug: ScaleMicrogridSolutions
+- name: Nira Energy
+  website: https://www.niraenergy.com
+  ats: greenhouse
+  slug: niraenergy
+- name: Budderfly
+  website: https://budderfly.com
+  ats: greenhouse
+  slug: budderfly
+  verify: true
+- name: Rhoic
+  website: https://www.rhoic.co
+  ats: unknown
+- name: Electric Era
+  website: https://electricera.tech
+  ats: unknown
+- name: Banyan Infrastructure
+  website: https://www.banyaninfrastructure.com
+  ats: greenhouse
+  slug: banyaninfrastructure
+  verify: true
+- name: Xoople
+  website: https://www.xoople.com
+  ats: teamtailor
+  slug: xoople
+  verify: true
+- name: SeaGen
+  website: https://www.seagen.io
+  ats: unknown
+- name: Made of Air
+  website: https://www.madeofair.com
+  ats: unknown
+- name: Amperon
+  website: https://www.amperon.co
+  ats: greenhouse
+  slug: amperon
+- name: Orennia
+  website: https://orennia.com
+  ats: greenhouse
+  slug: orennia
+- name: Grid Status
+  website: https://www.gridstatus.io
+  ats: unknown
+- name: Electricity Maps
+  website: https://www.electricitymaps.com
+  ats: unknown
+- name: Gorilla
+  website: https://www.gorilla.co/en
+  ats: workable
+  slug: gorilla
+- name: Terralayr
+  website: https://www.trlyr.com
+  ats: personio
+  slug: terralayr
+- name: Paces
+  website: https://www.paces.com
+  ats: unknown
+- name: Omnidian
+  website: https://omnidian.com
+  ats: lever
+  slug: omnidian
+- name: Caeli Wind
+  website: https://www.caeli-wind.de
+  ats: personio
+  slug: caeli-wind-gmbh
+- name: Ephyrios
+  website: https://ephyrios.com
+  ats: unknown
+- name: GreneIT
+  website: https://greneit.com
+  ats: unknown
+- name: Blumen Systems
+  website: https://www.blumensystems.com
+  ats: ashby
+  slug: blumen
+  verify: true
+- name: Zanskar
+  website: https://www.zanskar.com
+  ats: lever
+  slug: Zanskar
+- name: Everstar
+  website: https://everstar.ai
+  ats: ashby
+  slug: everstar
+- name: TLS Geothermics
+  website: https://www.tls-geothermics.com
+  ats: unknown
+- name: WeaveGrid
+  website: https://www.weavegrid.com
+  ats: greenhouse
+  slug: weavegrid
+- name: Seabound
+  website: https://www.seabound.co
+  ats: unknown
+- name: Terraset
+  website: https://terraset.es
+  ats: unknown
+- name: Climeworks
+  website: https://climeworks.com
+  ats: recruitee
+  slug: climeworks
+- name: Seqana
+  website: https://www.seqana.com
+  ats: html
+  url: https://join.com/companies/seqana
+  linkPattern: /companies/seqana/\d+
+
+# --- From your "Climate & Energy Tech — Target List" (Job Search project) ---
+- name: Emidat
+  ats: ashby
+  slug: emidat
+- name: Enode
+  ats: ashby
+  slug: enode
+- name: Octopus Energy / Kraken
+  ats: lever
+  slug: octoenergy
+- name: Eoliann
+  website: https://www.eoliann.com
+  ats: teamtailor
+  slug: eoliann-1670252117
+- name: Riverse
+  website: https://www.riverse.io
+  ats: unknown
+- name: Vizzuality
+  website: https://www.vizzuality.com
+  ats: bamboohr
+  slug: vizzuality
+- name: Clarity AI
+  website: https://clarity.ai
+  ats: greenhouse
+  slug: clarityai
+- name: Wallbox
+  website: https://wallbox.com
+  ats: bamboohr
+  slug: wallbox
+  verify: true

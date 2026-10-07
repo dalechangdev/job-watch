@@ -1,0 +1,44 @@
+# Cheap title filter, applied before the local model sees anything.
+# Case-insensitive regular expressions. A job must match at least one `titleInclude` and no `titleExclude`.
+titleInclude:
+  - engineer
+  - developer
+  - software
+  - full[- ]?stack
+  - front[- ]?end
+  - back[- ]?end
+  - programmer
+  - architect
+  - tech(nical)? lead
+
+titleExclude:
+  - \bintern(ship)?\b
+  - working student
+  - werkstudent
+  - \bsales\b
+  - account (executive|manager)
+  - mechanical
+  - electrical
+  - civil
+  - chemical
+  - process engineer
+  - field
+  - technician
+  - hardware
+  - firmware
+  - embedded
+  - manufacturing
+  - commissioning
+  - \bhvac\b
+  - geotechnical
+  - (solutions|sales|pre-?sales) engineer
+
+# Local model scores (0-10) -> report sections.
+strongScore: 7
+maybeScore: 4
+
+# Max characters of job description sent to the model.
+maxDescriptionChars: 4000
+
+# How many companies to fetch at once.
+concurrency: 6
