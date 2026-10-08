@@ -62,6 +62,14 @@ const ENTITIES: Record<string, string> = {
   quot: '"',
   apos: "'",
   nbsp: " ",
+  rsquo: "’",
+  lsquo: "‘",
+  rdquo: "”",
+  ldquo: "“",
+  ndash: "–",
+  mdash: "—",
+  middot: "·",
+  hellip: "…",
   "#39": "'",
 };
 

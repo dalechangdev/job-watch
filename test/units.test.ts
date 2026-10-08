@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import { extractLinks, fetchJobs, parseWorkdayUrl } from "../src/adapters.ts";
-import { detectAts } from "../src/detect.ts";
+import { extractJobs, extractJsonLd, extractLinks, fetchJobs, pageText, parseWorkdayUrl } from "../src/adapters.ts";
+import { detectAts, ownCareersPage } from "../src/detect.ts";
 import { makeTitleFilter } from "../src/filter.ts";
-import { parseScore } from "../src/llm.ts";
+import { parseScore, parseTitles } from "../src/llm.ts";
 import { diffAndRecord, type SeenState } from "../src/state.ts";
 import type { Company } from "../src/types.ts";
 import { htmlToText } from "../src/util.ts";
@@ -113,6 +113,28 @@ describe("adapters", () => {
     assert.equal((await fetchJobs(co({ ats: "bamboohr", slug: "acme" })))[0]?.url, "https://acme.bamboohr.com/careers/3");
   });
 
+  it("rippling paginates; gem and breezy", async () => {
+    const calls = mockFetch({
+      "board/acme/jobs?page=0": {
+        totalPages: 2,
+        items: [{ id: "a", name: "Dev", url: "https://ats.rippling.com/acme/jobs/a", department: { name: "Eng" }, locations: [{ name: "Madrid", workplaceType: "REMOTE" }, { name: "Lisbon" }] }],
+      },
+      "board/acme/jobs?page=1": { totalPages: 2, items: [{ id: "b", name: "Ops", url: "https://ats.rippling.com/acme/jobs/b" }] },
+      "api.gem.com/job_board/v0/acme/job_posts": [
+        { id: "g1", title: " Dev ", absolute_url: "https://jobs.gem.com/acme/g1", location: { name: "Remote, Spain" }, location_type: "remote", departments: [{ name: "Eng" }], content_plain: "Build things" },
+      ],
+      "acme.breezy.hr/json": [{ id: "b1", name: "Dev", url: "https://acme.breezy.hr/p/b1-dev", location: { name: "Ghent, BE", is_remote: true }, department: "Eng" }],
+    });
+    const rippling = await fetchJobs(co({ ats: "rippling", slug: "acme" }));
+    assert.deepEqual(rippling.map((j) => j.id), ["a", "b"]);
+    assert.equal(rippling[0]?.location, "Madrid, Lisbon");
+    assert.equal(rippling[0]?.remote, true);
+    assert.equal(calls.length, 2);
+    const gem = (await fetchJobs(co({ ats: "gem", slug: "acme" })))[0];
+    assert.deepEqual([gem?.title, gem?.remote, gem?.description], ["Dev", true, "Build things"]);
+    assert.equal((await fetchJobs(co({ ats: "breezy", slug: "acme" })))[0]?.remote, true);
+  });
+
   it("personio XML", async () => {
     mockFetch({
       "acme.jobs.personio.de/xml": `<?xml version="1.0"?><workzag-jobs>
@@ -158,6 +180,7 @@ describe("adapters", () => {
     assert.equal(call, 2);
     assert.equal(jobs[0]?.url, "https://acme.wd3.myworkdayjobs.com/External/job/Madrid/J0");
     assert.deepEqual(parseWorkdayUrl("https://x.wd1.myworkdayjobs.com/Careers"), { origin: "https://x.wd1.myworkdayjobs.com", tenant: "x", site: "Careers" });
+    assert.equal(parseWorkdayUrl("https://x.wd3.myworkdayjobs.com/es/Empleo").site, "Empleo");
   });
 
   it("html link extraction", () => {
@@ -173,6 +196,55 @@ describe("adapters", () => {
   });
 });
 
+describe("pages without a job platform", () => {
+  it("names jobs behind button-style links from the address or the card heading", () => {
+    const html = `<h3>Site Manager</h3><a href="/vacancy/123/">Read more</a>
+      <p>Frontend</p><a href="/careers/front-end-developer"><p>Apply</p></a>`;
+    assert.deepEqual(
+      extractLinks(html, "https://acme.com/careers").map((j) => j.title),
+      ["Site Manager", "front end developer"],
+    );
+  });
+
+  it("reads schema.org JobPosting data, and prefers it to links", () => {
+    const html = `<a href="/jobs/1">See job posting</a><script type="application/ld+json">
+      {"@type": "WebPage", "hasPart": [
+        {"@type": "JobPosting", "title": "Data Engineer", "url": "/jobs/1", "datePosted": "2026-01-02",
+         "jobLocation": {"@type": "Place", "address": {"addressLocality": "Madrid", "addressCountry": "ES"}}},
+        {"@type": "JobPosting", "title": "Designer"},
+        {"@type": "JobPosting", "description": "no title, so not a job"}]}</script>`;
+    const jobs = extractJsonLd(html, "https://acme.com/careers");
+    assert.deepEqual(jobs.map((j) => [j.id, j.title, j.location]), [
+      ["https://acme.com/jobs/1", "Data Engineer", "Madrid, ES"],
+      ["designer", "Designer", undefined],
+    ]);
+    assert.equal(extractJobs(html, "https://acme.com/careers").length, 2);
+    assert.equal(extractJobs(html, "https://acme.com/careers", "/jobs/").length, 1); // an explicit linkPattern wins
+  });
+
+  it("keeps only titles the page really contains", () => {
+    const text = pageText("<nav>Careers Blog</nav><p>Open roles</p><p>Senior   Backend Engineer</p><p>Office Manager</p>");
+    assert.doesNotMatch(text, /Blog/);
+    assert.deepEqual(parseTitles('Sure: {"jobs": ["senior backend engineer", "Chief Vibes Officer", {"title": "Office Manager"}]}', text), [
+      "senior backend engineer",
+      "Office Manager",
+    ]);
+    assert.throws(() => parseTitles('{"score": 3}', text));
+  });
+
+  it("picks the company's own careers page when there is no platform", () => {
+    const acme = co({ website: "https://www.acme.com" });
+    const home = { url: "https://www.acme.com/", html: "<a href='/careers'>Careers</a>" };
+    const listed = { url: "https://www.acme.com/careers", html: '<a href="/vacancy/site-manager/">Site Manager</a>' };
+    assert.deepEqual(ownCareersPage(acme, [home, listed])?.found, { ats: "html", url: listed.url });
+    const prose = { url: "https://acme.com/join-us", html: `<p>We are hiring a Backend Engineer. ${"Write to us. ".repeat(30)}</p>` };
+    assert.deepEqual(ownCareersPage(acme, [home, prose])?.found, { ats: "page", url: prose.url });
+    // A single-page app that serves the same shell everywhere, and other people's sites, are not careers pages.
+    assert.equal(ownCareersPage(acme, [home, { url: "https://www.acme.com/jobs", html: home.html }]), null);
+    assert.equal(ownCareersPage(acme, [home, { ...listed, url: "https://www.linkedin.com/company/acme/jobs" }]), null);
+  });
+});
+
 describe("detectAts", () => {
   const cases: [string, string, object][] = [
     ['<script src="https://boards.greenhouse.io/embed/job_board/js?for=acme"></script>', "", { ats: "greenhouse", slug: "acme" }],
@@ -185,6 +257,10 @@ describe("detectAts", () => {
     ['<a href="https://acme.recruitee.com/">', "", { ats: "recruitee", slug: "acme" }],
     ['<a href="https://careers.smartrecruiters.com/Acme1">', "", { ats: "smartrecruiters", slug: "Acme1" }],
     ['<a href="https://acme.wd3.myworkdayjobs.com/en-US/External">', "", { ats: "workday", url: "https://acme.wd3.myworkdayjobs.com/en-US/External" }],
+    ['<a href="https://acme.wd3.myworkdayjobs.com/es/Empleo/userHome">', "", { ats: "workday", url: "https://acme.wd3.myworkdayjobs.com/es/Empleo" }],
+    ['<a href="https://ats.rippling.com/acme-roles/jobs">', "", { ats: "rippling", slug: "acme-roles" }],
+    ['<link href="https://jobs.gem.com/manifest.json"><a href="https://jobs.gem.com/acme">', "", { ats: "gem", slug: "acme" }],
+    ['<a href="https://acme.breezy.hr/">', "", { ats: "breezy", slug: "acme" }],
     ['<link href="https://assets-aws.teamtailor-cdn.com/x.css">', "https://careers.acme.com/jobs", { ats: "teamtailor", url: "https://careers.acme.com/jobs.rss" }],
     ['<a href="https://acme.factorialhr.com">', "", { ats: "html", url: "https://acme.factorialhr.com", linkPattern: "/job_posting/" }],
   ];

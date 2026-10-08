@@ -8,14 +8,16 @@
  * Step 1 reads the company's own website and careers pages, looking for links or embeds from known
  * hiring platforms (reliable). Step 2, only if that fails, guesses slugs from the company name and asks
  * each platform whether that board exists (can hit a different company with the same name, so those
- * results are marked `verify: true`).
+ * results are marked `verify: true`). Step 3, for companies on no known platform, falls back to the
+ * careers page on their own site: `ats: html` if it has job links or JobPosting data, otherwise
+ * `ats: page`, which has the local model read the page. Both are marked `verify: true`.
  */
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { boardUrl, fetchJobs } from "./adapters.ts";
 import { loadCompanies, loadEnv, paths, saveCompanies } from "./config.ts";
-import { detectAts, type Found } from "./detect.ts";
+import { detectAts, ownCareersPage, type Found, type Page } from "./detect.ts";
 import type { Company } from "./types.ts";
 import { http, pMap, slugify, today } from "./util.ts";
 
@@ -30,10 +32,20 @@ async function fetchPage(url: string): Promise<{ html: string; finalUrl: string 
 }
 
 const CAREER_LINK = /career|jobs?\b|join|hiring|vacanc|work-with-us|empleo|trabaja|karriere|stellen|ura|carreira/i;
+const bare = (host: string) => host.replace(/^www\./, "");
 
-async function scanWebsite(c: Company): Promise<{ found: Found; via: string } | null> {
+interface Scan {
+  found?: Found;
+  via?: string;
+  /** Every page that was read, for the own-careers-page fallback. */
+  pages: Page[];
+}
+
+async function scanWebsite(c: Company): Promise<Scan> {
   const starts = [c.careersUrl, c.url, c.website].filter(Boolean) as string[];
-  if (!starts.length) return null;
+  const pages: Page[] = [];
+  if (!starts.length) return { pages };
+  const sites = [bare(new URL(c.website ?? starts[0] as string).hostname)];
   const origin = new URL(c.website ?? starts[0] as string).origin;
   const queue = [
     ...starts,
@@ -43,29 +55,47 @@ async function scanWebsite(c: Company): Promise<{ found: Found; via: string } | 
   ];
   const visited = new Set<string>();
   let followed = 0;
-  while (queue.length && visited.size < 14) {
+  while (queue.length && visited.size < 18) {
     const url = queue.shift() as string;
     if (visited.has(url)) continue;
     visited.add(url);
     const page = await fetchPage(url);
     if (!page) continue;
+    // Several addresses often redirect to one page; read it once.
+    if (pages.some((p) => p.url === page.finalUrl)) continue;
+    visited.add(page.finalUrl);
+    // The website may redirect to a new domain; that one is the company's too.
+    if (!pages.length) sites.push(bare(new URL(page.finalUrl).hostname));
+    pages.push({ url: page.finalUrl, html: page.html });
     const found = detectAts(page.html, page.finalUrl);
-    if (found) return { found, via: url };
-    // Follow up to 4 career-looking links found on the pages we read.
-    for (const m of page.html.matchAll(/<a\b[^>]*href\s*=\s*["']([^"'#]+)["'][^>]*>([\s\S]{0,200}?)<\/a>/gi)) {
-      if (followed >= 4) break;
+    if (found) return { found, via: url, pages };
+    // Follow a few career-looking links found on the pages we read, careers subdomains first.
+    const links: string[] = [];
+    // Any element with an href counts: some sites build their menus from custom tags.
+    for (const m of page.html.matchAll(/<(?!link\b)[\w-]+\b[^>]*?\shref\s*=\s*["']([^"'#]+)[^"']*["'][^>]*>/gi)) {
       const href = m[1] as string;
-      if (!CAREER_LINK.test(href) && !CAREER_LINK.test(m[2] as string)) continue;
+      const label = page.html.slice(m.index + m[0].length, m.index + m[0].length + 300).replace(/<[^>]*>?/g, " ");
+      if (!CAREER_LINK.test(href) && !CAREER_LINK.test(label.slice(0, 80))) continue;
       try {
-        const abs = new URL(href, page.finalUrl).href;
-        if (!visited.has(abs) && !queue.includes(abs)) {
-          queue.unshift(abs);
-          followed++;
-        }
+        const abs = new URL(href, page.finalUrl);
+        if (!/^https?:$/.test(abs.protocol) || /\.(pdf|png|jpe?g|svg|webp|zip)$/i.test(abs.pathname)) continue;
+        // Stay on the company's own site. A link to someone else's careers page (a partner, an investor)
+        // would find their board; a link to a hiring platform is already caught by detectAts above.
+        const host = bare(abs.hostname);
+        const own = sites.find((s) => host === s || host.endsWith(`.${s}`));
+        if (!own) continue;
+        if (host !== own) links.unshift(abs.href);
+        else links.push(abs.href);
       } catch {}
     }
+    for (const abs of links.reverse()) {
+      if (followed >= 8) break;
+      if (visited.has(abs) || queue.includes(abs)) continue;
+      queue.unshift(abs);
+      followed++;
+    }
   }
-  return null;
+  return { pages };
 }
 
 function slugCandidates(c: Company): string[] {
@@ -89,6 +119,7 @@ const text = async (url: string) => {
   const res = await http(url, {}, 0);
   return res.ok ? await res.text() : null;
 };
+const nonEmptyList = (v: unknown) => Array.isArray(v) && v.length > 0;
 const PROBES: [Company["ats"], Probe][] = [
   ["greenhouse", async (s) => Array.isArray((await json(`https://boards-api.greenhouse.io/v1/boards/${s}/jobs`))?.jobs)],
   ["ashby", async (s) => Array.isArray((await json(`https://api.ashbyhq.com/posting-api/job-board/${s}`))?.jobs)],
@@ -99,6 +130,10 @@ const PROBES: [Company["ats"], Probe][] = [
   ["recruitee", async (s) => Array.isArray((await json(`https://${s}.recruitee.com/api/offers/`))?.offers)],
   ["teamtailor", async (s) => (await text(`https://${s}.teamtailor.com/jobs.rss`))?.includes("<rss") ?? false],
   ["bamboohr", async (s) => Array.isArray((await json(`https://${s}.bamboohr.com/careers/list`))?.result)],
+  ["rippling", async (s) => ((await json(`https://ats.rippling.com/api/v2/board/${s}/jobs?pageSize=1`))?.totalItems ?? 0) > 0],
+  // Gem and Breezy answer with an empty list for boards with nothing on them, so only count real postings.
+  ["gem", async (s) => nonEmptyList(await json(`https://api.gem.com/job_board/v0/${s}/job_posts/`))],
+  ["breezy", async (s) => nonEmptyList(await json(`https://${s}.breezy.hr/json`))],
   // SmartRecruiters answers for any id, so only count it when there are postings.
   ["smartrecruiters", async (s) => ((await json(`https://api.smartrecruiters.com/v1/companies/${s}/postings?limit=1`))?.totalFound ?? 0) > 0],
 ];
@@ -134,11 +169,15 @@ async function main() {
 
   const rows = await pMap(targets, 4, async (c): Promise<Row> => {
     const scanned = await scanWebsite(c);
-    let found = scanned?.found ?? null;
-    let how = scanned ? `linked from ${scanned.via}` : "";
+    let found = scanned.found ?? null;
+    let how = found ? `linked from ${scanned.via}` : "";
     if (!found) {
       found = await probeSlugs(c);
       how = found ? "guessed from name — please verify" : "";
+    }
+    if (!found) {
+      const own = ownCareersPage(c, scanned.pages);
+      if (own) ({ found, how } = own);
     }
     if (!found) {
       console.error(`  ? ${c.name}: not found`);
@@ -149,7 +188,7 @@ async function main() {
     delete c.linkPattern;
     delete c.verify;
     Object.assign(c, found);
-    if (!scanned) c.verify = true;
+    if (!scanned.found) c.verify = true;
     let jobs: number | undefined;
     try {
       jobs = (await fetchJobs(c)).length;
@@ -169,7 +208,7 @@ async function main() {
     "",
     "Not found? Open the company's careers page, click a job, and look at the address bar: the platform is usually",
     "obvious (greenhouse.io, lever.co, ashbyhq.com, workable.com, personio, teamtailor, myworkdayjobs.com...).",
-    "Set `ats` and `slug`/`url` by hand, or use `ats: html` with the careers page `url`, or `ats: manual`.",
+    "Set `ats` and `slug`/`url` by hand, or use `ats: html` or `ats: page` with the careers page `url`, or `ats: manual`.",
   ];
   mkdirSync(paths.reports, { recursive: true });
   const out = join(paths.reports, `discover-${today()}.md`);

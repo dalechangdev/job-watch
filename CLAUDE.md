@@ -35,7 +35,20 @@ When experimenting with `check`, use `--dry-run`. A normal run records every fet
 4. **Score** — `llm.ts`. OpenAI-compatible `/chat/completions`, with `profile.md` as the system-prompt brief. `parseScore()` is deliberately lenient about chatty replies. If the model is unreachable (`llmReachable`, checked once), jobs are reported unscored rather than dropped.
 5. **Report / notify** — `report.ts` renders `reports/<date>.md` and `reports/latest.md`; `notify.ts` sends macOS/ntfy/Slack notifications.
 
-`src/discover.ts` is a separate entry point that fills in `ats`/`slug`/`url` in `companies.yaml`. It first scans the company's own site for known platform links or embeds (`detect.ts`), then falls back to probing guessed slugs against each platform, marking those results `verify: true` because a guessed slug can belong to a different company with the same name.
+`src/discover.ts` is a separate entry point that fills in `ats`/`slug`/`url` in `companies.yaml`, in three steps of decreasing reliability:
+
+1. Scan the company's own site (and its subdomains only) for known platform links or embeds — `detectAts()` in `detect.ts`.
+2. Probe guessed slugs against each platform (`PROBES`). A guessed slug can belong to a different company with the same name, so these get `verify: true`.
+3. Fall back to the careers page on the company's own site — `ownCareersPage()` in `detect.ts` — as `ats: html` if job links or JobPosting data can be extracted, otherwise `ats: page`. Also `verify: true`.
+
+### Companies on no platform
+
+Two adapters read arbitrary pages, and both live at the bottom of `adapters.ts`:
+
+- `html` — `extractJobs()`: schema.org `JobPosting` JSON-LD if present, else `extractLinks()` (links matching `linkPattern` or a default job-ish pattern). Job id is the link URL.
+- `page` — sends `pageText()` to the local model via `extractJobTitles()` in `llm.ts`. `parseTitles()` drops any title that isn't a substring of the page text, which is what stops the model inventing jobs; keep that check. Job id is the slugified title. This is the one adapter that needs the model, so it throws (company lands in "Couldn't check", state untouched) when the model is off or down.
+
+JavaScript-rendered pages are out of reach by design (no headless browser); those stay `ats: manual`.
 
 ### Things that span files
 

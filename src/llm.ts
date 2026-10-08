@@ -60,13 +60,7 @@ export function parseScore(text: string): Score {
   };
 }
 
-export async function scoreJob(
-  opts: LlmOptions,
-  profile: string,
-  company: string,
-  job: Job,
-  maxDescriptionChars: number,
-): Promise<Score> {
+async function chat(opts: LlmOptions, messages: { role: string; content: string }[]): Promise<string> {
   const res = await fetch(`${opts.baseUrl}/chat/completions`, {
     method: "POST",
     signal: AbortSignal.timeout(opts.timeoutMs ?? 120_000),
@@ -78,12 +72,67 @@ export async function scoreJob(
       model: opts.model,
       temperature: 0,
       response_format: { type: "json_object" },
-      messages: buildMessages(profile, company, job, maxDescriptionChars),
+      messages,
     }),
   });
   if (!res.ok) throw new Error(`LLM API ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return parseScore(data.choices?.[0]?.message?.content ?? "");
+  return data.choices?.[0]?.message?.content ?? "";
+}
+
+export async function scoreJob(
+  opts: LlmOptions,
+  profile: string,
+  company: string,
+  job: Job,
+  maxDescriptionChars: number,
+): Promise<Score> {
+  return parseScore(await chat(opts, buildMessages(profile, company, job, maxDescriptionChars)));
+}
+
+const EXTRACT_INSTRUCTIONS = `You read the text of a company's careers page and list the jobs that are open right now.
+Reply with ONLY a JSON object, no prose, in exactly this shape:
+{"jobs": ["<job title copied exactly as written on the page>", ...]}
+Only include specific roles someone can apply for today. Leave out closed or past vacancies, open/speculative
+applications, team or department names, benefits, and menu items. If there are none, reply {"jobs": []}.`;
+
+const squash = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+/**
+ * Reads the model's list of job titles, keeping only the ones that really appear in the page text,
+ * so a model that invents a title can't create a job.
+ */
+export function parseTitles(reply: string, pageText: string): string[] {
+  const match = reply.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error(`model reply had no JSON: ${reply.slice(0, 200)}`);
+  const obj = JSON.parse(match[0]) as { jobs?: unknown };
+  if (!Array.isArray(obj.jobs)) throw new Error(`model reply had no "jobs" list: ${match[0].slice(0, 200)}`);
+  const hay = squash(pageText);
+  const out = new Map<string, string>();
+  for (const j of obj.jobs) {
+    const title = String((j as { title?: unknown })?.title ?? j).replace(/\s+/g, " ").trim();
+    if (title.length < 3 || title.length > 150 || !hay.includes(squash(title))) continue;
+    if (!out.has(squash(title))) out.set(squash(title), title);
+  }
+  return [...out.values()];
+}
+
+// Careers pages are fetched several at a time, but a local model is happiest with one request at a time.
+let extractQueue: Promise<unknown> = Promise.resolve();
+
+/** Asks the local model which jobs a careers page lists. For pages with no feed and no usable links. */
+export function extractJobTitles(opts: LlmOptions, company: string, pageText: string): Promise<string[]> {
+  const run = async () =>
+    parseTitles(
+      await chat(opts, [
+        { role: "system", content: EXTRACT_INSTRUCTIONS },
+        { role: "user", content: `Company: ${company}\n\n--- PAGE TEXT ---\n${pageText}` },
+      ]),
+      pageText,
+    );
+  const next = extractQueue.then(run, run);
+  extractQueue = next.catch(() => {});
+  return next;
 }
 
 /** Quick reachability check so a down server is reported once, not once per job. */

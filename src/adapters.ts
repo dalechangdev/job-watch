@@ -1,6 +1,7 @@
 import { XMLParser } from "fast-xml-parser";
+import { extractJobTitles, llmOptionsFromEnv } from "./llm.ts";
 import type { AtsType, Company, Job } from "./types.ts";
-import { decodeEntities, getJson, getText, htmlToText, http, HttpError } from "./util.ts";
+import { decodeEntities, getJson, getText, htmlToText, http, HttpError, slugify } from "./util.ts";
 
 type Fetcher = (c: Company) => Promise<Job[]>;
 
@@ -269,6 +270,88 @@ const bamboohr: Fetcher = async (c) => {
   }));
 };
 
+// ---------------------------------------------------------------- Rippling
+interface RipplingJob {
+  id: string;
+  name: string;
+  url: string;
+  department?: { name?: string };
+  locations?: { name?: string; workplaceType?: string }[];
+}
+const rippling: Fetcher = async (c) => {
+  const slug = need(c, "slug");
+  const out = new Map<string, Job>();
+  let pages = 1;
+  for (let page = 0; page < Math.min(pages, 20); page++) {
+    const data = await getJson<{ items: RipplingJob[]; totalPages?: number }>(
+      `https://ats.rippling.com/api/v2/board/${slug}/jobs?page=${page}&pageSize=50`,
+    );
+    pages = data.totalPages ?? 1;
+    for (const j of data.items ?? []) {
+      const types = (j.locations ?? []).map((l) => l.workplaceType);
+      out.set(j.id, {
+        id: j.id,
+        title: j.name.trim(),
+        url: j.url,
+        location: join(...(j.locations ?? []).map((l) => l.name)),
+        remote: types.includes("REMOTE") ? true : undefined,
+        department: str(j.department?.name),
+      });
+    }
+  }
+  return [...out.values()];
+};
+
+// ---------------------------------------------------------------- Gem
+interface GemJob {
+  id: string;
+  title: string;
+  absolute_url: string;
+  location?: { name?: string };
+  location_type?: string;
+  departments?: { name: string }[];
+  first_published_at?: string;
+  content_plain?: string;
+  content?: string;
+}
+const gem: Fetcher = async (c) => {
+  const slug = need(c, "slug");
+  const data = await getJson<GemJob[]>(`https://api.gem.com/job_board/v0/${slug}/job_posts/`);
+  return data.map((j) => ({
+    id: j.id,
+    title: j.title.trim(),
+    url: j.absolute_url,
+    location: str(j.location?.name),
+    remote: j.location_type === "remote" ? true : undefined,
+    department: str(j.departments?.[0]?.name),
+    postedAt: j.first_published_at,
+    description: j.content_plain?.trim() || htmlToText(j.content),
+  }));
+};
+
+// ---------------------------------------------------------------- Breezy HR
+interface BreezyJob {
+  id: string;
+  name: string;
+  url: string;
+  published_date?: string;
+  department?: string;
+  location?: { name?: string; is_remote?: boolean };
+}
+const breezy: Fetcher = async (c) => {
+  const slug = need(c, "slug");
+  const data = await getJson<BreezyJob[]>(`https://${slug}.breezy.hr/json`);
+  return data.map((j) => ({
+    id: j.id,
+    title: j.name.trim(),
+    url: j.url,
+    location: str(j.location?.name),
+    remote: j.location?.is_remote ?? undefined,
+    department: str(j.department),
+    postedAt: j.published_date,
+  }));
+};
+
 // ---------------------------------------------------------------- Workday
 interface WdPosting {
   title: string;
@@ -280,7 +363,7 @@ export function parseWorkdayUrl(url: string): { origin: string; tenant: string; 
   const u = new URL(url);
   const tenant = u.hostname.split(".")[0] as string;
   const parts = u.pathname.split("/").filter(Boolean);
-  const site = parts.filter((p) => !/^[a-z]{2}-[A-Z]{2}$/.test(p))[0];
+  const site = parts.filter((p) => !/^[a-z]{2}(-[A-Z]{2})?$/.test(p))[0];
   if (!site) throw new Error(`Can't find the Workday site name in ${url}`);
   return { origin: u.origin, tenant, site };
 }
@@ -312,7 +395,21 @@ const workday: Fetcher = async (c) => {
 };
 
 // ---------------------------------------------------------------- Plain HTML page
-const DEFAULT_LINK_PATTERN = "(job|career|position|vacanc|opening|posting|role)s?[/_-]";
+const DEFAULT_LINK_PATTERN =
+  "(jobs?|careers?|positions?|vacanc(y|ies)|openings?|postings?|roles?|stellen(angebote?)?|empleos?|ofertas?)[/_-]";
+/** Link text that names the button rather than the job, e.g. "See job posting" or "Apply now". */
+const GENERIC_LINK_TEXT = /^(see|view|read|learn|apply|more|details?|find out|open|go to|ver|más|mehr)\b.{0,30}$/i;
+
+/** Links that sit among the jobs on many careers pages but aren't one. */
+const NOT_A_JOB = /\b(open|speculative|spontaneous|unsolicited|general) application\b|initiativbewerbung|candidatura espont[aá]nea/i;
+
+function headingBefore(html: string, index: number): string | undefined {
+  const before = html.slice(Math.max(0, index - 2000), index);
+  const headings = [...before.matchAll(/<h[1-6]\b[^>]*>([\s\S]*?)<\/h[1-6]>/gi)];
+  const text = htmlToText(headings.at(-1)?.[1]).replace(/\s+/g, " ").trim();
+  return text.length >= 3 && text.length <= 150 ? text : undefined;
+}
+
 export function extractLinks(html: string, pageUrl: string, pattern?: string): Job[] {
   const re = new RegExp(pattern ?? DEFAULT_LINK_PATTERN, "i");
   const page = new URL(pageUrl);
@@ -328,16 +425,89 @@ export function extractLinks(html: string, pageUrl: string, pattern?: string): J
     const key = abs.origin + abs.pathname.replace(/\/$/, "");
     if (key === page.origin + page.pathname.replace(/\/$/, "")) continue;
     if (!re.test(abs.pathname + abs.search)) continue;
-    const text = htmlToText(m[2]).replace(/\s+/g, " ").trim();
-    const title = text || decodeURIComponent(abs.pathname.split("/").filter(Boolean).pop() ?? "").replace(/[-_]+/g, " ");
+    let text = htmlToText(m[2]).replace(/\s+/g, " ").trim();
+    const slug = decodeURIComponent(abs.pathname.split("/").filter(Boolean).pop() ?? "").replace(/[-_]+/g, " ");
+    // A button label says nothing; a wordy address ("/careers/front-end-developer") or the card's heading does.
+    if (GENERIC_LINK_TEXT.test(text)) text = (/[a-z]{3,} [a-z]{3,}/i.test(slug) ? slug : headingBefore(html, m.index)) ?? text;
+    const title = text || slug;
+    if (!pattern && NOT_A_JOB.test(title)) continue;
     const prev = seen.get(key);
     if (!prev || prev.title.length < title.length) seen.set(key, { id: key, title: title.slice(0, 200), url: abs.href });
   }
   return [...seen.values()];
 }
+
+/** Jobs from schema.org JobPosting data embedded in a page (many self-built careers pages have it for Google). */
+export function extractJsonLd(html: string, pageUrl: string): Job[] {
+  const out = new Map<string, Job>();
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) return node.forEach(visit);
+    if (!node || typeof node !== "object") return;
+    const o = node as Record<string, any>;
+    const title = str(o.title ?? o.name)?.trim();
+    if ([o["@type"]].flat().includes("JobPosting") && title) {
+      let url = pageUrl;
+      try {
+        if (o.url) url = new URL(String(o.url), pageUrl).href;
+      } catch {}
+      const address = [o.jobLocation].flat()[0]?.address;
+      const id = url === pageUrl ? slugify(title) : url;
+      out.set(id, {
+        id,
+        title,
+        url,
+        location: typeof address === "string" ? address : join(address?.addressLocality, address?.addressRegion, address?.addressCountry),
+        remote: o.jobLocationType === "TELECOMMUTE" ? true : undefined,
+        postedAt: str(o.datePosted),
+        description: htmlToText(str(o.description)) || undefined,
+      });
+    }
+    Object.values(o).forEach(visit);
+  };
+  for (const m of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
+    try {
+      visit(JSON.parse(m[1] as string));
+    } catch {}
+  }
+  return [...out.values()];
+}
+
+/** What `ats: html` reads from a page: embedded JobPosting data if there is any, otherwise job-looking links. */
+export function extractJobs(html: string, pageUrl: string, pattern?: string): Job[] {
+  const structured = pattern ? [] : extractJsonLd(html, pageUrl);
+  return structured.length ? structured : extractLinks(html, pageUrl, pattern);
+}
 const html: Fetcher = async (c) => {
   const url = need(c, "url");
-  return extractLinks(await getText(url), url, c.linkPattern);
+  return extractJobs(await getText(url), url, c.linkPattern);
+};
+
+// ---------------------------------------------------------------- Any page, read by the local model
+const PAGE_TEXT_CHARS = 12_000;
+const squash = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+/** The readable text of a page, without menus and footers. */
+export function pageText(html: string): string {
+  return htmlToText(html.replace(/<(nav|header|footer|noscript|svg|form)\b[\s\S]*?<\/\1>/gi, " "))
+    .replace(/\n(\s*-?\s*\n)+/g, "\n")
+    .slice(0, PAGE_TEXT_CHARS);
+}
+
+const page: Fetcher = async (c) => {
+  const url = need(c, "url");
+  const llm = llmOptionsFromEnv();
+  if (!llm) throw new Error(`${c.name}: ats "page" needs the local model, and LLM_SCORING is off`);
+  const body = await getText(url);
+  const text = pageText(body);
+  if (text.length < 200) throw new Error(`${url} has almost no text without JavaScript; use ats: manual`);
+  const titles = await extractJobTitles(llm, c.name, text);
+  const links = extractLinks(body, url, ".");
+  return titles.map((title) => ({
+    // The title is the only stable handle a free-form page gives us.
+    id: slugify(title),
+    title,
+    url: links.find((l) => squash(l.title).includes(squash(title)))?.url ?? url,
+  }));
 };
 
 // ---------------------------------------------------------------- registry
@@ -352,8 +522,12 @@ export const ADAPTERS: Partial<Record<AtsType, Fetcher>> = {
   teamtailor,
   smartrecruiters,
   bamboohr,
+  rippling,
+  gem,
+  breezy,
   workday,
   html,
+  page,
 };
 
 /** Public board URL for humans (used in reports and discover output). */
@@ -380,6 +554,12 @@ export function boardUrl(c: Company): string | undefined {
       return `https://jobs.smartrecruiters.com/${s}`;
     case "bamboohr":
       return `https://${s}.bamboohr.com/careers`;
+    case "rippling":
+      return `https://ats.rippling.com/${s}/jobs`;
+    case "gem":
+      return `https://jobs.gem.com/${s}`;
+    case "breezy":
+      return `https://${s}.breezy.hr/`;
     default:
       return c.url ?? c.careersUrl ?? c.website;
   }

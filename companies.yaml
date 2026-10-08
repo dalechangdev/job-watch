@@ -4,9 +4,11 @@
 # `ats` says how to read the job list:
 #
 #   greenhouse | lever | lever-eu | ashby | workable | recruitee | personio | teamtailor
-#   smartrecruiters | bamboohr   -> need `slug` (the company's id on that platform)
+#   smartrecruiters | bamboohr | rippling | gem | breezy
+#                                -> need `slug` (the company's id on that platform)
 #   workday                      -> needs `url` (the myworkdayjobs.com careers page)
 #   html                         -> needs `url`, optional `linkPattern` (regex matched against job link hrefs)
+#   page                         -> needs `url`; the local model reads the page text and lists the open jobs
 #   manual                       -> skipped; listed in the report as "check by hand"
 #   unknown                      -> not found yet; run `npm run discover`
 #
@@ -23,7 +25,8 @@
   verify: true
 - name: Urbantz
   website: https://www.urbantz.com
-  ats: unknown
+  ats: breezy
+  slug: urbantz
 - name: Amarenco
   website: https://www.amarenco.com
   ats: teamtailor
@@ -45,7 +48,9 @@
   ats: unknown
 - name: Ace Aquatec
   website: https://www.aceaquatec.com
-  ats: unknown
+  ats: html
+  url: https://aceaquatec.com/careers/Current-vacancies
+  verify: true
 - name: Solar Lacovale
   ats: unknown
 - name: Tecfys
@@ -54,12 +59,15 @@
 # --- Your list ---
 - name: Polar Night Energy
   website: https://polarnightenergy.com
-  ats: unknown
+  ats: html
+  url: https://polarnightenergy.com/careers/
+  verify: true
 - name: Loviisan Lämpö
   ats: unknown
 - name: Encamp
   website: https://www.encamp.com
-  ats: unknown
+  ats: rippling
+  slug: encamp
 - name: Mati Carbon
   website: https://www.maticarbon.com
   ats: ashby
@@ -88,7 +96,8 @@
   verify: true
 - name: Acciona Energía
   website: https://www.acciona-energia.com
-  ats: unknown
+  ats: workday
+  url: https://acciona.wd3.myworkdayjobs.com/ACCIONA_Employment_Channel
 - name: trawa
   website: https://www.trawa.de/en/
   ats: ashby
@@ -113,11 +122,15 @@
   ats: unknown
 - name: Inoqo
   website: https://www.inoqo.com
-  ats: unknown
+  ats: page
+  url: https://www.inoqo.com/career
+  verify: true
 - name: Quixotic Energy
   website: https://www.quixotic.energy
   careersUrl: https://www.quixotic.energy/careers/developer
-  ats: unknown
+  ats: html
+  url: https://www.quixotic.energy/careers/developer
+  verify: true
 - name: Green Eagle Solutions
   website: https://www.greeneaglesolutions.com
   ats: html
@@ -161,7 +174,8 @@
   slug: ampsortation
 - name: Airloom Energy
   website: https://www.airloom.energy
-  ats: unknown
+  ats: rippling
+  slug: airloom-open-roles
 - name: Air Company
   website: https://aircompany.com
   ats: greenhouse
@@ -209,7 +223,9 @@
   ats: unknown
 - name: Electric Era
   website: https://electricera.tech
-  ats: unknown
+  ats: html
+  url: https://electricera.tech/careers
+  verify: true
 - name: Banyan Infrastructure
   website: https://www.banyaninfrastructure.com
   ats: greenhouse
@@ -239,7 +255,8 @@
   ats: unknown
 - name: Electricity Maps
   website: https://www.electricitymaps.com
-  ats: unknown
+  ats: teamtailor
+  url: https://careers.electricitymaps.com/jobs.rss
 - name: Gorilla
   website: https://www.gorilla.co/en
   ats: workable
@@ -250,7 +267,8 @@
   slug: terralayr
 - name: Paces
   website: https://www.paces.com
-  ats: unknown
+  ats: gem
+  slug: paces
 - name: Omnidian
   website: https://omnidian.com
   ats: lever

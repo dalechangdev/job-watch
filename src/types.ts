@@ -9,8 +9,12 @@ export const ATS_TYPES = [
   "teamtailor",
   "smartrecruiters",
   "bamboohr",
+  "rippling",
+  "gem",
+  "breezy",
   "workday",
   "html",
+  "page",
   "manual",
   "unknown",
 ] as const;
